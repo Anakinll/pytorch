@@ -102,7 +102,6 @@ from torch.testing._internal.common_utils import (
     skipCUDANonDefaultStreamIf,
     skipIfRocm,
     skipIfRocmArch,
-    skipIfRocmVersionAtLeast,
     skipIfRocmVersionInRange,
     skipIfRocmVersionLessThan,
     slowTest,
@@ -8772,7 +8771,6 @@ print(value, end="")
                 amdsmi.amdsmi_get_power_info.return_value = power_info
                 self.assertEqual(torch.cuda.power_draw(), expected)
 
-    @skipIfRocmVersionAtLeast([10, 1])  # ROCM-30651
     @unittest.skipIf(not TEST_PYNVML, "pynvml/amdsmi is not available")
     @skipIfRocmArch(MI350_ARCH)
     def test_clock_speed(self):
