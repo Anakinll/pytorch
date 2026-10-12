@@ -221,6 +221,9 @@ class FSDPParam:
         DTensorSpec | None
     )  # set for DTensor params (SPMD or TP/EP)
     all_gather_outputs: list[torch.Tensor]  # 1D
+    # Set when the outputs view a custom layout's buffers, which the param group
+    # allocates and frees
+    _keep_all_gather_output_storage: bool = False
     _default_all_gather_output_layouts: tuple[_AllGatherOutputLayout, ...]
     # All-gather extension attributes, describing the latest all_gather_inputs call
     _all_gather_metadata: Any | None
@@ -957,7 +960,7 @@ class FSDPParam:
             unsharded_tensor,
             self._orig_size,
             self._contiguous_orig_stride,
-            storage_offset=0,
+            storage_offset=unsharded_tensor.storage_offset(),
         )
         if self.is_spmd_types:
             pass  # keep as plain tensor; spmd_types restored before module compute
@@ -1123,10 +1126,14 @@ class FSDPParam:
         return _from_local_no_grad(tensor, post_forward_sharding_spec)
 
     def alloc_all_gather_outputs(self) -> None:
+        if self._keep_all_gather_output_storage:
+            return
         for tensor in self.all_gather_outputs:
             alloc_storage(tensor)
 
     def free_all_gather_outputs(self) -> None:
+        if self._keep_all_gather_output_storage:
+            return
         for tensor in self.all_gather_outputs:
             free_storage(tensor)
 
