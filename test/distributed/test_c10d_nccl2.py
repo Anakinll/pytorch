@@ -658,6 +658,11 @@ class _ProcessGroupNCCL2SubgroupTest(MultiProcContinuousTest):
     They run on a throwaway subgroup so the class-wide default group survives;
     a collective on that default group afterwards is what proves the process is
     still alive and healthy.
+
+    A subgroup whose collective timed out on one rank is released with
+    _abort_process_group on every rank: the failed rank aborts its
+    communicator, and a graceful destroy (an intra-node collective since
+    NCCL 2.31) on the other ranks would wait for it forever.
     """
 
     @classmethod
@@ -763,7 +768,7 @@ class ProcessGroupNCCL2WatchdogNoTearDownTest(_ProcessGroupNCCL2SubgroupTest):
                 dist.all_reduce(torch.ones(4, device=self.device), group=pg)
 
         self._wait_for_rank_zero(pg)
-        dist.destroy_process_group(pg)
+        dist.distributed_c10d._abort_process_group(pg)
         self._check_all_reduce()
 
     @requires_nccl()
@@ -788,7 +793,7 @@ class ProcessGroupNCCL2WatchdogNoTearDownTest(_ProcessGroupNCCL2SubgroupTest):
                 dist.all_reduce(torch.ones(4, device=self.device), group=pg)
 
         self._wait_for_rank_zero(pg)
-        dist.destroy_process_group(pg)
+        dist.distributed_c10d._abort_process_group(pg)
         self._check_all_reduce()
 
 
@@ -813,7 +818,7 @@ class ProcessGroupNCCL2BlockingWaitTest(_ProcessGroupNCCL2SubgroupTest):
                 work.wait()
 
         self._wait_for_rank_zero(pg)
-        dist.destroy_process_group(pg)
+        dist.distributed_c10d._abort_process_group(pg)
         self._check_all_reduce()
 
 
@@ -908,7 +913,7 @@ class ProcessGroupNCCL2DumpOnTimeoutTest(_ProcessGroupNCCL2SubgroupTest):
                 self.assertFalse(os.path.exists(path))
 
         dist.destroy_process_group(gloo_pg)
-        dist.destroy_process_group(pg)
+        dist.distributed_c10d._abort_process_group(pg)
         self._check_all_reduce()
 
 
@@ -955,7 +960,7 @@ class ProcessGroupNCCL2DumpTimeoutBoundTest(_ProcessGroupNCCL2SubgroupTest):
                 self.assertEqual(hung[0]["profiling_name"], "nccl2:all_reduce")
             self._wait_for_rank_zero(pg)
 
-        dist.destroy_process_group(pg)
+        dist.distributed_c10d._abort_process_group(pg)
         self._check_all_reduce()
 
 
