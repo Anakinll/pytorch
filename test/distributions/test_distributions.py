@@ -113,6 +113,7 @@ from torch.testing._internal.common_device_type import (
     dtypesIfXPU,
     expectedFailureMPS,
     instantiate_device_type_tests,
+    skipCUDAIf,
     skipMPS,
     skipXPUIf,
 )
@@ -3387,6 +3388,7 @@ class TestDistributionsDevice(DistributionsTestCase):
 
     @skipMPS  # flaky failure
     @skipXPUIf(True, "https://github.com/intel/torch-xpu-ops/issues/4021")
+    @skipCUDAIf(True, "https://github.com/pytorch/pytorch/issues/200652")
     def test_wishart_stable_with_precision_matrix(self):
         set_rng_seed(0)  # see Note [Randomized statistical tests]
         ndim = 10
@@ -3460,6 +3462,7 @@ class TestDistributionsDevice(DistributionsTestCase):
     @unittest.skipIf(not TEST_NUMPY, "NumPy not found")
     @skipMPS  # flaky failure
     @skipXPUIf(True, "https://github.com/intel/torch-xpu-ops/issues/4020")
+    @skipCUDAIf(True, "https://github.com/pytorch/pytorch/issues/200652")
     @set_default_dtype_if_supported(torch.double)
     def test_wishart_sample(self):
         set_rng_seed(0)  # see Note [Randomized statistical tests]
@@ -6566,8 +6569,8 @@ class TestNumericalStabilityDevice(DistributionsTestCase):
 
 
 # TODO: make this a pytest parameterized test
-class TestLazyLogitsInitializationDevice(DistributionsTestCase):
-    hw_classification = HardwareClassification.ACCELERATOR
+class TestLazyLogitsInitialization(DistributionsTestCase):
+    hw_classification = HardwareClassification.GENERIC
 
     def setUp(self):
         super().setUp()
@@ -7400,7 +7403,6 @@ for _cls in (
     TestKLDevice,
     TestConstraintsDevice,
     TestNumericalStabilityDevice,
-    TestLazyLogitsInitializationDevice,
     TestAgainstScipyDevice,
     TestFunctorsDevice,
     TestValidationDevice,
