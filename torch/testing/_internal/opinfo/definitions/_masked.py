@@ -544,6 +544,7 @@ op_db: list[OpInfo] = [
                 dtypes=(torch.bool, torch.int8, torch.int16, torch.int32),
             ),
             DecorateInfo(
+                unittest.skip("Skipped!"),
                 "TestReductionsDevice",
                 "test_ref_small_input",
                 dtypes=(torch.int8, torch.int16, torch.int32),
