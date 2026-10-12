@@ -7691,7 +7691,8 @@ def shrink_group(
         shrink_flags (int, optional): Flags to control the shrinking behavior.
             Can be ``SHRINK_DEFAULT`` (default) or ``SHRINK_ABORT``.
             ``SHRINK_ABORT`` will attempt to terminate ongoing operations
-            in the parent communicator before shrinking.
+            in the parent communicator before shrinking, and the original
+            group is then aborted instead of destroyed.
             Defaults to ``SHRINK_DEFAULT``.
         pg_options (``Backend.Options``, optional): Backend-specific options to apply
             to the shrunken process group. If provided, the backend will use
@@ -7738,7 +7739,9 @@ def shrink_group(
 
     # Step 6: Handle cleanup and creation of new process group
     target_group_info["pg_options_override"] = pg_options
-    return _finalize_shrunk_group(target_group_info, excluded_ranks_set, new_backend)
+    return _finalize_shrunk_group(
+        target_group_info, excluded_ranks_set, new_backend, shrink_flags
+    )
 
 
 def _validate_shrink_inputs(ranks_to_exclude: list[int], shrink_flags: int) -> None:
@@ -7884,6 +7887,7 @@ def _finalize_shrunk_group(
     group_info: _ShrinkGroupInfo,
     excluded_ranks_set: set[int],
     new_backend: C10DBackend,
+    shrink_flags: int,
 ) -> ProcessGroup:
     """Clean up old group and create new shrunk process group."""
     target_pg = group_info["process_group"]
@@ -7903,7 +7907,7 @@ def _finalize_shrunk_group(
     ]
 
     # Clean up the original group
-    _cleanup_original_group(target_pg, is_default_group)
+    _cleanup_original_group(target_pg, is_default_group, shrink_flags)
 
     # Create and configure the new process group
     new_pg = _create_shrunk_process_group(
@@ -7956,10 +7960,17 @@ def _extract_group_metadata(target_pg: ProcessGroup) -> _GroupMetadata:
     }
 
 
-def _cleanup_original_group(target_pg: ProcessGroup, is_default_group: bool) -> None:
+def _cleanup_original_group(
+    target_pg: ProcessGroup, is_default_group: bool, shrink_flags: int
+) -> None:
     """Clean up the original process group safely."""
     try:
-        destroy_process_group(target_pg)
+        # With SHRINK_ABORT the excluded ranks abandon the original group, so a
+        # graceful destroy, which waits for all of its ranks, cannot complete.
+        if shrink_flags & SHRINK_ABORT:
+            _abort_process_group(target_pg)
+        else:
+            destroy_process_group(target_pg)
     except Exception:
         group_type = "default" if is_default_group else "non-default"
         logger.warning(
