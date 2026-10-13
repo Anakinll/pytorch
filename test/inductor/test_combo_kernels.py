@@ -88,7 +88,7 @@ def _optimization_hint(expr, fallback=None):
     return expr
 
 
-def _make_node_info(x_hint, rnumel=1, is_reduction=False):
+def _make_node_info(x_hint, rnumel=1, is_reduction=False, persistent=False):
     return NodeInfo(
         node_schedule=[],
         tiling={"x": x_hint, "y": rnumel},
@@ -96,7 +96,7 @@ def _make_node_info(x_hint, rnumel=1, is_reduction=False):
         numel=x_hint,
         rnumel=rnumel,
         features=_Features(is_reduction),
-        is_persistent_reduction=False,
+        is_persistent_reduction=persistent,
     )
 
 
@@ -497,6 +497,39 @@ class ComboKernelPartitionLoggingTests(TestCase):
         self.assertEqual(len(large_pointwise_logs), 2)
 
 
+class ComboKernelPartitionTests(TestCase):
+    def _partition(self, node_info_map):
+        graph = SimpleNamespace(
+            sizevars=SimpleNamespace(optimization_hint=_optimization_hint)
+        )
+        with V.set_graph_handler(graph):
+            return _default_custom_combo_kernel_horizontal_partition(
+                list(node_info_map), None, node_info_map
+            )
+
+    def test_persistent_and_looped_reductions_are_separated(self):
+        persistent = _PartitionLoggingNode(rnumel=512)
+        looped = _PartitionLoggingNode(rnumel=2048)
+        other_persistent = _PartitionLoggingNode(rnumel=768)
+        node_info_map = {
+            persistent: _make_node_info(
+                1024, rnumel=512, is_reduction=True, persistent=True
+            ),
+            looped: _make_node_info(1024, rnumel=2048, is_reduction=True),
+            other_persistent: _make_node_info(
+                4096, rnumel=768, is_reduction=True, persistent=True
+            ),
+        }
+
+        self.assertEqual(
+            self._partition(node_info_map), [[persistent, other_persistent], [looped]]
+        )
+        with torch._inductor.config.patch(combo_kernel_per_subkernel_blocks=True):
+            self.assertEqual(
+                self._partition(node_info_map), [[persistent, looped, other_persistent]]
+            )
+
+
 @instantiate_parametrized_tests
 class ComboKernelTests(TestCase):
     check_model_gpu = check_model_gpu
@@ -830,6 +863,7 @@ class ComboKernelTests(TestCase):
         FileCheck().check("triton_heuristics.persistent_reduction").run(code[0])
 
     @requires_gpu_and_triton
+    @torch._inductor.config.patch("triton.mix_order_reduction", True)
     def test_fuse_mix_order_reductions_combo_kernels(self):
         def fn(x, y, z):
             # FusedMixOrderReductions produces row_sum (buf0)
@@ -1045,13 +1079,14 @@ class ComboKernelTests(TestCase):
         fn_c = torch.compile(fn)
         out_compiled, code = run_and_get_code(fn_c, *inps)
         torch.testing.assert_close(out_eager, out_compiled, atol=1e-4, rtol=1e-4)
-        self.assertEqual(torch._inductor.metrics.generated_kernel_count, 1)
         if torch._inductor.config.combo_kernel_per_subkernel_blocks:
+            self.assertEqual(torch._inductor.metrics.generated_kernel_count, 1)
             FileCheck().check("XBLOCK_0 : tl.constexpr").check(
                 "XBLOCK_1 : tl.constexpr, R0_BLOCK_1 : tl.constexpr"
             ).run(code[0])
         else:
-            FileCheck().check_not("XBLOCK_0 : tl.constexpr").run(code[0])
+            # The persistent and looped reductions cannot share XBLOCK in one combo.
+            self.assertEqual(torch._inductor.metrics.generated_kernel_count, 2)
 
     @requires_gpu_and_triton
     def test_combo_kernel_per_config_subkernel_red(self):
