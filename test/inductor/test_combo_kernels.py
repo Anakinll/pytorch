@@ -529,6 +529,28 @@ class ComboKernelPartitionTests(TestCase):
                 self._partition(node_info_map), [[persistent, looped, other_persistent]]
             )
 
+    def test_very_large_short_reduction_runs_standalone(self):
+        small = _PartitionLoggingNode(rnumel=768)
+        large = _PartitionLoggingNode(rnumel=192)
+        other_small = _PartitionLoggingNode(rnumel=768)
+        node_info_map = {
+            small: _make_node_info(
+                3072, rnumel=768, is_reduction=True, persistent=True
+            ),
+            large: _make_node_info(
+                int(LARGE_NUMELS) // 192 + 1,
+                rnumel=192,
+                is_reduction=True,
+                persistent=True,
+            ),
+            other_small: _make_node_info(
+                3072, rnumel=768, is_reduction=True, persistent=True
+            ),
+        }
+
+        partitions = self._partition(node_info_map)
+        self.assertEqual(partitions, [[large], [small, other_small]])
+
 
 @instantiate_parametrized_tests
 class ComboKernelTests(TestCase):
